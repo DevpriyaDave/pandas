@@ -3,11 +3,14 @@ import os
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
 from pandas.compat import (
     PY311,
     is_ci_environment,
     is_platform_linux,
     is_platform_little_endian,
+    is_platform_mac,
 )
 from pandas.errors import (
     ClosedFileError,
@@ -32,7 +35,10 @@ from pandas.tests.io.pytables.common import (
 from pandas.io import pytables
 from pandas.io.pytables import Term
 
-pytestmark = pytest.mark.single_cpu
+pytestmark = [
+    pytest.mark.single_cpu,
+    pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False),
+]
 
 
 @pytest.mark.parametrize("mode", ["r", "r+", "a", "w"])
@@ -287,12 +293,17 @@ def test_complibs(tmp_path, lvl, lib, request):
     result = read_hdf(tmpfile, gname)
     tm.assert_frame_equal(result, df)
 
+    is_mac = is_platform_mac()
+
     # Open file and check metadata for correct amount of compression
     with tables.open_file(tmpfile, mode="r") as h5table:
         for node in h5table.walk_nodes(where="/" + gname, classname="Leaf"):
             assert node.filters.complevel == lvl
             if lvl == 0:
                 assert node.filters.complib is None
+            elif is_mac and lib == "blosc2":
+                res = node.filters.complib
+                assert res in [lib, "blosc2:blosclz"], res
             else:
                 assert node.filters.complib == lib
 

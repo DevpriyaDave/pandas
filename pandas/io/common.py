@@ -1,4 +1,5 @@
 """Common IO api utilities"""
+
 from __future__ import annotations
 
 from abc import (
@@ -53,10 +54,6 @@ import zipfile
 from pandas._typing import (
     BaseBuffer,
     ReadCsvBuffer,
-)
-from pandas.compat import (
-    get_bz2_file,
-    get_lzma_file,
 )
 from pandas.compat._optional import import_optional_dependency
 from pandas.util._decorators import doc
@@ -176,13 +173,11 @@ def is_url(url: object) -> bool:
 
 
 @overload
-def _expand_user(filepath_or_buffer: str) -> str:
-    ...
+def _expand_user(filepath_or_buffer: str) -> str: ...
 
 
 @overload
-def _expand_user(filepath_or_buffer: BaseBufferT) -> BaseBufferT:
-    ...
+def _expand_user(filepath_or_buffer: BaseBufferT) -> BaseBufferT: ...
 
 
 def _expand_user(filepath_or_buffer: str | BaseBufferT) -> str | BaseBufferT:
@@ -234,15 +229,15 @@ def validate_header_arg(header: object) -> None:
 
 
 @overload
-def stringify_path(filepath_or_buffer: FilePath, convert_file_like: bool = ...) -> str:
-    ...
+def stringify_path(
+    filepath_or_buffer: FilePath, convert_file_like: bool = ...
+) -> str: ...
 
 
 @overload
 def stringify_path(
     filepath_or_buffer: BaseBufferT, convert_file_like: bool = ...
-) -> BaseBufferT:
-    ...
+) -> BaseBufferT: ...
 
 
 def stringify_path(
@@ -279,14 +274,14 @@ def stringify_path(
     return _expand_user(filepath_or_buffer)
 
 
-def urlopen(*args, **kwargs):
+def urlopen(*args: Any, **kwargs: Any) -> Any:
     """
     Lazy-import wrapper for stdlib urlopen, as that imports a big chunk of
     the stdlib.
     """
     import urllib.request
 
-    return urllib.request.urlopen(*args, **kwargs)
+    return urllib.request.urlopen(*args, **kwargs)  # noqa: TID251
 
 
 def is_fsspec_url(url: FilePath | BaseBuffer) -> bool:
@@ -318,7 +313,7 @@ def _get_filepath_or_buffer(
 
     Parameters
     ----------
-    filepath_or_buffer : a url, filepath (str, py.path.local or pathlib.Path),
+    filepath_or_buffer : a url, filepath (str or pathlib.Path),
                          or buffer
     {compression_options}
 
@@ -359,6 +354,16 @@ def _get_filepath_or_buffer(
         warnings.warn(
             f"{compression} will not write the byte order mark for {encoding}",
             UnicodeWarning,
+            stacklevel=find_stack_level(),
+        )
+
+    if "a" in mode and compression_method in ["zip", "tar"]:
+        # GH56778
+        warnings.warn(
+            "zip and tar do not support mode 'a' properly. "
+            "This combination will result in multiple files with same name "
+            "being added to the archive.",
+            RuntimeWarning,
             stacklevel=find_stack_level(),
         )
 
@@ -627,8 +632,7 @@ def get_handle(
     is_text: Literal[False],
     errors: str | None = ...,
     storage_options: StorageOptions = ...,
-) -> IOHandles[bytes]:
-    ...
+) -> IOHandles[bytes]: ...
 
 
 @overload
@@ -642,8 +646,7 @@ def get_handle(
     is_text: Literal[True] = ...,
     errors: str | None = ...,
     storage_options: StorageOptions = ...,
-) -> IOHandles[str]:
-    ...
+) -> IOHandles[str]: ...
 
 
 @overload
@@ -657,8 +660,7 @@ def get_handle(
     is_text: bool = ...,
     errors: str | None = ...,
     storage_options: StorageOptions = ...,
-) -> IOHandles[str] | IOHandles[bytes]:
-    ...
+) -> IOHandles[str] | IOHandles[bytes]: ...
 
 
 @doc(compression_options=_shared_docs["compression_options"] % "path_or_buf")
@@ -778,9 +780,11 @@ def get_handle(
 
         # BZ Compression
         elif compression == "bz2":
+            import bz2
+
             # Overload of "BZ2File" to handle pickle protocol 5
             # "Union[str, BaseBuffer]", "str", "Dict[str, Any]"
-            handle = get_bz2_file()(  # type: ignore[call-overload]
+            handle = bz2.BZ2File(  # type: ignore[call-overload]
                 handle,
                 mode=ioargs.mode,
                 **compression_args,
@@ -843,7 +847,9 @@ def get_handle(
             # error: Argument 1 to "LZMAFile" has incompatible type "Union[str,
             # BaseBuffer]"; expected "Optional[Union[Union[str, bytes, PathLike[str],
             # PathLike[bytes]], IO[bytes]], None]"
-            handle = get_lzma_file()(
+            import lzma
+
+            handle = lzma.LZMAFile(
                 handle,  # type: ignore[arg-type]
                 ioargs.mode,
                 **compression_args,
@@ -953,8 +959,7 @@ class _BufferedWriter(BytesIO, ABC):  # type: ignore[misc]
     buffer = BytesIO()
 
     @abstractmethod
-    def write_to_buffer(self) -> None:
-        ...
+    def write_to_buffer(self) -> None: ...
 
     def close(self) -> None:
         if self.closed:
@@ -977,7 +982,7 @@ class _BytesTarFile(_BufferedWriter):
         mode: Literal["r", "a", "w", "x"] = "r",
         fileobj: ReadBuffer[bytes] | WriteBuffer[bytes] | None = None,
         archive_name: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self.archive_name = archive_name
@@ -1030,7 +1035,7 @@ class _BytesZipFile(_BufferedWriter):
         file: FilePath | ReadBuffer[bytes] | WriteBuffer[bytes],
         mode: str,
         archive_name: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         mode = mode.replace("b", "")
@@ -1228,12 +1233,14 @@ def is_potential_multi_index(
     bool : Whether or not columns could become a MultiIndex
     """
     if index_col is None or isinstance(index_col, bool):
-        index_col = []
+        index_columns = set()
+    else:
+        index_columns = set(index_col)
 
     return bool(
         len(columns)
         and not isinstance(columns, ABCMultiIndex)
-        and all(isinstance(c, tuple) for c in columns if c not in list(index_col))
+        and all(isinstance(c, tuple) for c in columns if c not in index_columns)
     )
 
 

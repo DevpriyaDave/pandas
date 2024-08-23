@@ -11,7 +11,9 @@ import re
 import numpy as np
 import pytest
 
-from pandas._config import using_pyarrow_string_dtype
+from pandas._config import using_string_dtype
+
+from pandas.compat import HAS_PYARROW
 
 import pandas as pd
 from pandas import (
@@ -57,7 +59,7 @@ class DummyElement:
         self.value = value
         self.dtype = np.dtype(dtype)
 
-    def __array__(self):
+    def __array__(self, dtype=None, copy=None):
         return np.array(self.value, dtype=self.dtype)
 
     def __str__(self) -> str:
@@ -251,9 +253,6 @@ class TestFrameComparisons:
             with pytest.raises(TypeError, match=msg):
                 right_f(pd.Timestamp("nat"), df)
 
-    @pytest.mark.xfail(
-        using_pyarrow_string_dtype(), reason="can't compare string and int"
-    )
     def test_mixed_comparison(self):
         # GH#13128, GH#22163 != datetime64 vs non-dt64 should be False,
         # not raise TypeError
@@ -1097,7 +1096,7 @@ class TestFrameArithmetic:
                     and expr.USE_NUMEXPR
                     and switch_numexpr_min_elements == 0
                 ):
-                    warn = UserWarning  # "evaluating in Python space because ..."
+                    warn = UserWarning
             else:
                 msg = (
                     f"cannot perform __{op.__name__}__ with this "
@@ -1105,17 +1104,16 @@ class TestFrameArithmetic:
                 )
 
             with pytest.raises(TypeError, match=msg):
-                with tm.assert_produces_warning(warn):
+                with tm.assert_produces_warning(warn, match="evaluating in Python"):
                     op(df, elem.value)
 
         elif (op, dtype) in skip:
             if op in [operator.add, operator.mul]:
                 if expr.USE_NUMEXPR and switch_numexpr_min_elements == 0:
-                    # "evaluating in Python space because ..."
                     warn = UserWarning
                 else:
                     warn = None
-                with tm.assert_produces_warning(warn):
+                with tm.assert_produces_warning(warn, match="evaluating in Python"):
                     op(df, elem.value)
 
             else:
@@ -1239,9 +1237,8 @@ class TestFrameArithmeticUnsorted:
 
         # since filling converts dtypes from object, changed expected to be
         # object
-        msg = "Downcasting object dtype arrays"
-        with tm.assert_produces_warning(FutureWarning, match=msg):
-            filled = df.fillna(np.nan)
+
+        filled = df.fillna(np.nan)
         result = op(df, 3)
         expected = op(filled, 3).astype(object)
         expected[pd.isna(expected)] = np.nan
@@ -1252,14 +1249,10 @@ class TestFrameArithmeticUnsorted:
         expected[pd.isna(expected)] = np.nan
         tm.assert_frame_equal(result, expected)
 
-        msg = "Downcasting object dtype arrays"
-        with tm.assert_produces_warning(FutureWarning, match=msg):
-            result = op(df, df.fillna(7))
+        result = op(df, df.fillna(7))
         tm.assert_frame_equal(result, expected)
 
-        msg = "Downcasting object dtype arrays"
-        with tm.assert_produces_warning(FutureWarning, match=msg):
-            result = op(df.fillna(7), df)
+        result = op(df.fillna(7), df)
         tm.assert_frame_equal(result, expected)
 
     @pytest.mark.parametrize("op,res", [("__eq__", False), ("__ne__", True)])
@@ -1551,6 +1544,9 @@ class TestFrameArithmeticUnsorted:
         with pytest.raises(ValueError, match=msg):
             func(simple_frame, simple_frame[:2])
 
+    @pytest.mark.xfail(
+        using_string_dtype() and HAS_PYARROW, reason="TODO(infer_string)"
+    )
     def test_strings_to_numbers_comparisons_raises(self, compare_operators_no_eq_ne):
         # GH 11565
         df = DataFrame(
@@ -2006,23 +2002,16 @@ def test_arith_list_of_arraylike_raise(to_add):
         to_add + df
 
 
-def test_inplace_arithmetic_series_update(using_copy_on_write, warn_copy_on_write):
+def test_inplace_arithmetic_series_update():
     # https://github.com/pandas-dev/pandas/issues/36373
     df = DataFrame({"A": [1, 2, 3]})
     df_orig = df.copy()
     series = df["A"]
     vals = series._values
 
-    with tm.assert_cow_warning(warn_copy_on_write):
-        series += 1
-    if using_copy_on_write:
-        assert series._values is not vals
-        tm.assert_frame_equal(df, df_orig)
-    else:
-        assert series._values is vals
-
-        expected = DataFrame({"A": [2, 3, 4]})
-        tm.assert_frame_equal(df, expected)
+    series += 1
+    assert series._values is not vals
+    tm.assert_frame_equal(df, df_orig)
 
 
 def test_arithmetic_multiindex_align():
@@ -2112,6 +2101,7 @@ def test_enum_column_equality():
     tm.assert_series_equal(result, expected)
 
 
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
 def test_mixed_col_index_dtype():
     # GH 47382
     df1 = DataFrame(columns=list("abc"), data=1.0, index=[0])

@@ -2,11 +2,14 @@
 Tests column conversion functionality during parsing
 for all of the parsers defined in parsers.py
 """
+
 from io import StringIO
 
 from dateutil.parser import parse
 import numpy as np
 import pytest
+
+from pandas._config import using_string_dtype
 
 import pandas as pd
 from pandas import (
@@ -185,6 +188,7 @@ def test_converters_corner_with_nans(all_parsers):
         tm.assert_frame_equal(results[0], results[1])
 
 
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
 @pytest.mark.parametrize("conv_f", [lambda x: x, str])
 def test_converter_index_col_bug(all_parsers, conv_f):
     # see gh-1835 , GH#40589

@@ -4,10 +4,12 @@ with different size combinations. This is to ensure stability of the sorting
 and proper parameter handling
 """
 
-
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
+from pandas.compat import HAS_PYARROW
 import pandas.util._test_decorators as td
 
 from pandas import (
@@ -232,14 +234,6 @@ def education_df():
     )
 
 
-def test_axis(education_df):
-    msg = "DataFrame.groupby with axis=1 is deprecated"
-    with tm.assert_produces_warning(FutureWarning, match=msg):
-        gp = education_df.groupby("country", axis=1)
-    with pytest.raises(NotImplementedError, match="axis"):
-        gp.value_counts()
-
-
 def test_bad_subset(education_df):
     gp = education_df.groupby("country")
     with pytest.raises(ValueError, match="subset"):
@@ -282,6 +276,7 @@ def _frame_value_counts(df, keys, normalize, sort, ascending):
     return df[keys].value_counts(normalize=normalize, sort=sort, ascending=ascending)
 
 
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
 @pytest.mark.parametrize("groupby", ["column", "array", "function"])
 @pytest.mark.parametrize("normalize, name", [(True, "proportion"), (False, "count")])
 @pytest.mark.parametrize(
@@ -326,7 +321,7 @@ def test_against_frame_and_seriesgroupby(
     )
     if frame:
         # compare against apply with DataFrame value_counts
-        warn = FutureWarning if groupby == "column" else None
+        warn = DeprecationWarning if groupby == "column" else None
         msg = "DataFrameGroupBy.apply operated on the grouping columns"
         with tm.assert_produces_warning(warn, match=msg):
             expected = gp.apply(
@@ -338,13 +333,10 @@ def test_against_frame_and_seriesgroupby(
         else:
             name = "proportion" if normalize else "count"
             expected = expected.reset_index().rename({0: name}, axis=1)
-            if groupby == "column":
-                expected = expected.rename({"level_0": "country"}, axis=1)
-                expected["country"] = np.where(expected["country"], "US", "FR")
-            elif groupby == "function":
-                expected["level_0"] = expected["level_0"] == 1
+            if groupby in ["array", "function"] and (not as_index and frame):
+                expected.insert(loc=0, column="level_0", value=result["level_0"])
             else:
-                expected["level_0"] = np.where(expected["level_0"], "US", "FR")
+                expected.insert(loc=0, column="country", value=result["country"])
             tm.assert_frame_equal(result, expected)
     else:
         # compare against SeriesGroupBy value_counts
@@ -368,6 +360,7 @@ def test_against_frame_and_seriesgroupby(
             tm.assert_frame_equal(result, expected)
 
 
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
 @pytest.mark.parametrize(
     "dtype",
     [
@@ -508,6 +501,9 @@ def test_dropna_combinations(
     tm.assert_series_equal(result, expected)
 
 
+@pytest.mark.xfail(
+    using_string_dtype() and not HAS_PYARROW, reason="TODO(infer_string)", strict=False
+)
 @pytest.mark.parametrize(
     "dropna, expected_data, expected_index",
     [
@@ -1212,7 +1208,7 @@ def test_value_counts_sort_categorical(sort, vc_sort, normalize):
     elif not sort and vc_sort:
         taker = [0, 2, 1, 3]
     else:
-        taker = [2, 3, 0, 1]
+        taker = [2, 1, 0, 3]
     expected = expected.take(taker)
 
     tm.assert_series_equal(result, expected)

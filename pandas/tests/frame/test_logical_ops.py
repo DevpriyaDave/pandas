@@ -4,6 +4,10 @@ import re
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
+from pandas.compat import HAS_PYARROW
+
 from pandas import (
     CategoricalIndex,
     DataFrame,
@@ -96,6 +100,9 @@ class TestDataFrameLogicalOperators:
         res_ser = df1a_int["A"] | df1a_bool["A"]
         tm.assert_series_equal(res_ser, df1a_bool["A"])
 
+    @pytest.mark.xfail(
+        using_string_dtype() and not HAS_PYARROW, reason="TODO(infer_string)"
+    )
     def test_logical_ops_invalid(self, using_infer_string):
         # GH#5808
 
@@ -157,7 +164,6 @@ class TestDataFrameLogicalOperators:
 
         _check_unary_op(operator.inv)  # TODO: belongs elsewhere
 
-    @pytest.mark.filterwarnings("ignore:Downcasting object dtype arrays:FutureWarning")
     def test_logical_with_nas(self):
         d = DataFrame({"a": [np.nan, False], "b": [True, True]})
 
@@ -171,10 +177,7 @@ class TestDataFrameLogicalOperators:
         result = d["a"].fillna(False) | d["b"]
         expected = Series([True, True])
         tm.assert_series_equal(result, expected)
-
-        msg = "The 'downcast' keyword in fillna is deprecated"
-        with tm.assert_produces_warning(FutureWarning, match=msg):
-            result = d["a"].fillna(False, downcast=False) | d["b"]
+        result = d["a"].fillna(False) | d["b"]
         expected = Series([True, True])
         tm.assert_series_equal(result, expected)
 

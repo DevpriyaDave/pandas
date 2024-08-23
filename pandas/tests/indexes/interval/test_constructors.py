@@ -40,12 +40,12 @@ class ConstructorTests:
             (Index(np.arange(-10, 11, dtype=np.int64)), np.int64),
             (Index(np.arange(10, 31, dtype=np.uint64)), np.uint64),
             (Index(np.arange(20, 30, 0.5), dtype=np.float64), np.float64),
-            (date_range("20180101", periods=10), "<M8[ns]"),
+            (date_range("20180101", periods=10), "M8[ns]"),
             (
                 date_range("20180101", periods=10, tz="US/Eastern"),
                 "datetime64[ns, US/Eastern]",
             ),
-            (timedelta_range("1 day", periods=10), "<m8[ns]"),
+            (timedelta_range("1 day", periods=10), "m8[ns]"),
         ],
     )
     @pytest.mark.parametrize("name", [None, "foo"])
@@ -210,6 +210,7 @@ class TestFromArrays(ConstructorTests):
 
     @pytest.fixture
     def constructor(self):
+        """Fixture for IntervalIndex.from_arrays constructor"""
         return IntervalIndex.from_arrays
 
     def get_kwargs_from_breaks(self, breaks, closed="right"):
@@ -282,6 +283,7 @@ class TestFromBreaks(ConstructorTests):
 
     @pytest.fixture
     def constructor(self):
+        """Fixture for IntervalIndex.from_breaks constructor"""
         return IntervalIndex.from_breaks
 
     def get_kwargs_from_breaks(self, breaks, closed="right"):
@@ -320,6 +322,7 @@ class TestFromTuples(ConstructorTests):
 
     @pytest.fixture
     def constructor(self):
+        """Fixture for IntervalIndex.from_tuples constructor"""
         return IntervalIndex.from_tuples
 
     def get_kwargs_from_breaks(self, breaks, closed="right"):
@@ -370,6 +373,7 @@ class TestClassConstructors(ConstructorTests):
 
     @pytest.fixture
     def constructor(self):
+        """Fixture for IntervalIndex class constructor"""
         return IntervalIndex
 
     def get_kwargs_from_breaks(self, breaks, closed="right"):

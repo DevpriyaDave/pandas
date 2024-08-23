@@ -13,12 +13,13 @@ classes (if they are relevant for the extension interface for all dtypes), or
 be added to the array-specific tests in `pandas/tests/arrays/`.
 
 """
+
 import string
 
 import numpy as np
 import pytest
 
-from pandas._config import using_pyarrow_string_dtype
+from pandas._config import using_string_dtype
 
 import pandas as pd
 from pandas import Categorical
@@ -98,7 +99,7 @@ class TestCategorical(base.ExtensionTests):
                 continue
             assert na_value_obj not in data
             # this section suffers from super method
-            if not using_pyarrow_string_dtype():
+            if not using_string_dtype():
                 assert na_value_obj in data_missing
 
     def test_empty(self, dtype):
@@ -139,6 +140,7 @@ class TestCategorical(base.ExtensionTests):
         result = data.map(lambda x: x, na_action=na_action)
         tm.assert_extension_array_equal(result, data)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
     def test_arith_frame_with_scalar(self, data, all_arithmetic_operators, request):
         # frame & scalar
         op_name = all_arithmetic_operators
@@ -150,6 +152,7 @@ class TestCategorical(base.ExtensionTests):
             )
         super().test_arith_frame_with_scalar(data, op_name)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
     def test_arith_series_with_scalar(self, data, all_arithmetic_operators, request):
         op_name = all_arithmetic_operators
         if op_name == "__rmod__":

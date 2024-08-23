@@ -4,6 +4,8 @@ import re
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
 from pandas._libs.tslibs import Timestamp
 from pandas.compat import is_platform_windows
 
@@ -24,7 +26,10 @@ from pandas.tests.io.pytables.common import (
 )
 from pandas.util import _test_decorators as td
 
-pytestmark = pytest.mark.single_cpu
+pytestmark = [
+    pytest.mark.single_cpu,
+    pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False),
+]
 
 
 def test_conv_read_write():
@@ -236,8 +241,10 @@ def test_table_values_dtypes_roundtrip(setup_path):
         df1["float322"] = 1.0
         df1["float322"] = df1["float322"].astype("float32")
         df1["bool"] = df1["float32"] > 0
-        df1["time1"] = Timestamp("20130101")
-        df1["time2"] = Timestamp("20130102")
+        df1["time_s_1"] = Timestamp("20130101")
+        df1["time_s_2"] = Timestamp("20130101 00:00:00")
+        df1["time_ms"] = Timestamp("20130101 00:00:00.000")
+        df1["time_ns"] = Timestamp("20130102 00:00:00.000000000")
 
         store.append("df_mixed_dtypes1", df1)
         result = store.select("df_mixed_dtypes1").dtypes.value_counts()
@@ -252,7 +259,9 @@ def test_table_values_dtypes_roundtrip(setup_path):
                 "int8": 1,
                 "int64": 1,
                 "object": 1,
-                "datetime64[ns]": 2,
+                "datetime64[s]": 2,
+                "datetime64[ms]": 1,
+                "datetime64[ns]": 1,
             },
             name="count",
         )
@@ -287,14 +296,14 @@ def test_float_index(setup_path):
     _check_roundtrip(s, tm.assert_series_equal, path=setup_path)
 
 
-def test_tuple_index(setup_path):
+def test_tuple_index(setup_path, performance_warning):
     # GH #492
     col = np.arange(10)
     idx = [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)]
     data = np.random.default_rng(2).standard_normal(30).reshape((3, 10))
     DF = DataFrame(data, index=idx, columns=col)
 
-    with tm.assert_produces_warning(pd.errors.PerformanceWarning):
+    with tm.assert_produces_warning(performance_warning):
         _check_roundtrip(DF, tm.assert_frame_equal, path=setup_path)
 
 

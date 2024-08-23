@@ -1,11 +1,14 @@
 """
 Tests for the pandas custom headers in http(s) requests
 """
+
 from functools import partial
 import gzip
 from io import BytesIO
 
 import pytest
+
+from pandas._config import using_string_dtype
 
 import pandas.util._test_decorators as td
 
@@ -83,6 +86,7 @@ def stata_responder(df):
         return bio.getvalue()
 
 
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
 @pytest.mark.parametrize(
     "responder, read_method",
     [

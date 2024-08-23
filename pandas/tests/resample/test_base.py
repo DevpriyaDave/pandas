@@ -3,6 +3,9 @@ from datetime import datetime
 import numpy as np
 import pytest
 
+from pandas.core.dtypes.common import is_extension_array_dtype
+
+import pandas as pd
 from pandas import (
     DataFrame,
     DatetimeIndex,
@@ -20,6 +23,29 @@ from pandas.core.indexes.datetimes import date_range
 from pandas.core.indexes.period import period_range
 from pandas.core.indexes.timedeltas import timedelta_range
 from pandas.core.resample import _asfreq_compat
+
+
+@pytest.fixture(
+    params=[
+        "linear",
+        "time",
+        "index",
+        "values",
+        "nearest",
+        "zero",
+        "slinear",
+        "quadratic",
+        "cubic",
+        "barycentric",
+        "krogh",
+        "from_derivatives",
+        "piecewise_polynomial",
+        "pchip",
+        "akima",
+    ],
+)
+def all_1d_no_arg_interpolation_methods(request):
+    return request.param
 
 
 @pytest.mark.parametrize("freq", ["2D", "1h"])
@@ -86,6 +112,56 @@ def test_resample_interpolate(index):
         result = df.resample("1min").asfreq().interpolate()
         expected = df.resample("1min").interpolate()
     tm.assert_frame_equal(result, expected)
+
+
+def test_resample_interpolate_regular_sampling_off_grid(
+    all_1d_no_arg_interpolation_methods,
+):
+    pytest.importorskip("scipy")
+    # GH#21351
+    index = date_range("2000-01-01 00:01:00", periods=5, freq="2h")
+    ser = Series(np.arange(5.0), index)
+
+    method = all_1d_no_arg_interpolation_methods
+    # Resample to 1 hour sampling and interpolate with the given method
+    ser_resampled = ser.resample("1h").interpolate(method)
+
+    # Check that none of the resampled values are NaN, except the first one
+    # which lies 1 minute before the first actual data point
+    assert np.isnan(ser_resampled.iloc[0])
+    assert not ser_resampled.iloc[1:].isna().any()
+
+    if method not in ["nearest", "zero"]:
+        # Check that the resampled values are close to the expected values
+        # except for methods with known inaccuracies
+        assert np.all(
+            np.isclose(ser_resampled.values[1:], np.arange(0.5, 4.5, 0.5), rtol=1.0e-1)
+        )
+
+
+def test_resample_interpolate_irregular_sampling(all_1d_no_arg_interpolation_methods):
+    pytest.importorskip("scipy")
+    # GH#21351
+    ser = Series(
+        np.linspace(0.0, 1.0, 5),
+        index=DatetimeIndex(
+            [
+                "2000-01-01 00:00:03",
+                "2000-01-01 00:00:22",
+                "2000-01-01 00:00:24",
+                "2000-01-01 00:00:31",
+                "2000-01-01 00:00:39",
+            ]
+        ),
+    )
+
+    # Resample to 5 second sampling and interpolate with the given method
+    ser_resampled = ser.resample("5s").interpolate(all_1d_no_arg_interpolation_methods)
+
+    # Check that none of the resampled values are NaN, except the first one
+    # which lies 3 seconds before the first actual data point
+    assert np.isnan(ser_resampled.iloc[0])
+    assert not ser_resampled.iloc[1:].isna().any()
 
 
 def test_raises_on_non_datetimelike_index():
@@ -360,7 +436,7 @@ def test_resample_empty_dtypes(index, dtype, resample_method):
 
     empty_series_dti = Series([], index, dtype)
     with tm.assert_produces_warning(warn, match=msg):
-        rs = empty_series_dti.resample("d", group_keys=False)
+        rs = empty_series_dti.resample("D", group_keys=False)
     try:
         getattr(rs, resample_method)()
     except DataError:
@@ -459,3 +535,30 @@ def test_resample_quantile(index):
         result = ser.resample(freq).quantile(q)
         expected = ser.resample(freq).agg(lambda x: x.quantile(q)).rename(ser.name)
     tm.assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize("how", ["first", "last"])
+def test_first_last_skipna(any_real_nullable_dtype, skipna, how):
+    # GH#57019
+    if is_extension_array_dtype(any_real_nullable_dtype):
+        na_value = Series(dtype=any_real_nullable_dtype).dtype.na_value
+    else:
+        na_value = np.nan
+    df = DataFrame(
+        {
+            "a": [2, 1, 1, 2],
+            "b": [na_value, 3.0, na_value, 4.0],
+            "c": [na_value, 3.0, na_value, 4.0],
+        },
+        index=date_range("2020-01-01", periods=4, freq="D"),
+        dtype=any_real_nullable_dtype,
+    )
+    rs = df.resample("ME")
+    method = getattr(rs, how)
+    result = method(skipna=skipna)
+
+    ts = pd.to_datetime("2020-01-31").as_unit("ns")
+    gb = df.groupby(df.shape[0] * [ts])
+    expected = getattr(gb, how)(skipna=skipna)
+    expected.index.freq = "ME"
+    tm.assert_frame_equal(result, expected)

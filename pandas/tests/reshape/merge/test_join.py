@@ -155,7 +155,7 @@ class TestJoin:
 
         # overlap
         msg = (
-            "You are trying to merge on float64 and object|string columns for key "
+            "You are trying to merge on float64 and object|str columns for key "
             "'A'. If you wish to proceed you should use pd.concat"
         )
         with pytest.raises(ValueError, match=msg):
@@ -1038,6 +1038,25 @@ def test_join_empty(left_empty, how, exp):
     if how == "outer":
         expected = expected.sort_index()
 
+    tm.assert_frame_equal(result, expected)
+
+
+def test_join_empty_uncomparable_columns():
+    # GH 57048
+    df1 = DataFrame()
+    df2 = DataFrame(columns=["test"])
+    df3 = DataFrame(columns=["foo", ("bar", "baz")])
+
+    result = df1 + df2
+    expected = DataFrame(columns=["test"])
+    tm.assert_frame_equal(result, expected)
+
+    result = df2 + df3
+    expected = DataFrame(columns=[("bar", "baz"), "foo", "test"])
+    tm.assert_frame_equal(result, expected)
+
+    result = df1 + df3
+    expected = DataFrame(columns=[("bar", "baz"), "foo"])
     tm.assert_frame_equal(result, expected)
 
 

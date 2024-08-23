@@ -4,6 +4,10 @@ import pydoc
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
+from pandas.compat import HAS_PYARROW
+
 import pandas as pd
 from pandas import (
     DataFrame,
@@ -107,7 +111,7 @@ class TestSeriesMisc:
     def test_axis_alias(self):
         s = Series([1, 2, np.nan])
         tm.assert_series_equal(s.dropna(axis="rows"), s.dropna(axis="index"))
-        assert s.dropna().sum("rows") == 3
+        assert s.dropna().sum(axis="rows") == 3
         assert s._get_axis_number("rows") == 0
         assert s._get_axis_name("rows") == "index"
 
@@ -138,13 +142,6 @@ class TestSeriesMisc:
         expected = Series(1, index=range(10), dtype="float64")
         tm.assert_series_equal(result, expected)
 
-    def test_ndarray_compat_ravel(self):
-        # ravel
-        s = Series(np.random.default_rng(2).standard_normal(10))
-        with tm.assert_produces_warning(FutureWarning, match="ravel is deprecated"):
-            result = s.ravel(order="F")
-        tm.assert_almost_equal(result, s.values.ravel(order="F"))
-
     def test_empty_method(self):
         s_empty = Series(dtype=object)
         assert s_empty.empty
@@ -167,15 +164,14 @@ class TestSeriesMisc:
         result = s + 1
         assert result.attrs == {"version": 1}
 
+    @pytest.mark.xfail(
+        using_string_dtype() and not HAS_PYARROW, reason="TODO(infer_string)"
+    )
     def test_inspect_getmembers(self):
         # GH38782
         pytest.importorskip("jinja2")
         ser = Series(dtype=object)
-        msg = "Series._data is deprecated"
-        with tm.assert_produces_warning(
-            DeprecationWarning, match=msg, check_stacklevel=False
-        ):
-            inspect.getmembers(ser)
+        inspect.getmembers(ser)
 
     def test_unknown_attribute(self):
         # GH#9680
@@ -206,7 +202,6 @@ class TestSeriesMisc:
         with pytest.raises(AttributeError, match=msg):
             ser.weekday
 
-    @pytest.mark.filterwarnings("ignore:Downcasting object dtype arrays:FutureWarning")
     @pytest.mark.parametrize(
         "kernel, has_numeric_only",
         [
@@ -227,7 +222,6 @@ class TestSeriesMisc:
             ("count", False),
             ("median", True),
             ("std", True),
-            ("backfill", False),
             ("rank", True),
             ("pct_change", False),
             ("cummax", False),
@@ -238,7 +232,6 @@ class TestSeriesMisc:
             ("cumprod", False),
             ("fillna", False),
             ("ffill", False),
-            ("pad", False),
             ("bfill", False),
             ("sample", False),
             ("tail", False),
@@ -291,10 +284,3 @@ class TestSeriesMisc:
             else:
                 # reducer
                 assert result == expected
-
-
-@pytest.mark.parametrize("converter", [int, float, complex])
-def test_float_int_deprecated(converter):
-    # GH 51101
-    with tm.assert_produces_warning(FutureWarning):
-        assert converter(Series([1])) == converter(1)

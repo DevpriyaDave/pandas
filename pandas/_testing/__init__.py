@@ -6,14 +6,13 @@ import os
 from sys import byteorder
 from typing import (
     TYPE_CHECKING,
-    Callable,
     ContextManager,
     cast,
 )
-import warnings
 
 import numpy as np
 
+from pandas._config import using_string_dtype
 from pandas._config.localization import (
     can_set_locale,
     get_locales,
@@ -34,7 +33,6 @@ from pandas import (
     Series,
 )
 from pandas._testing._io import (
-    round_trip_localpath,
     round_trip_pathlib,
     round_trip_pickle,
     write_to_compressed,
@@ -59,7 +57,6 @@ from pandas._testing.asserters import (
     assert_indexing_slices_equivalent,
     assert_interval_array_equal,
     assert_is_sorted,
-    assert_is_valid_plot_return_object,
     assert_metadata_equivalent,
     assert_numpy_array_equal,
     assert_period_array_equal,
@@ -73,12 +70,10 @@ from pandas._testing.compat import (
     get_obj,
 )
 from pandas._testing.contexts import (
-    assert_cow_warning,
     decompress_file,
     ensure_clean,
     raises_chained_assignment_error,
     set_timezone,
-    use_numexpr,
     with_csv_dialect,
 )
 from pandas.core.arrays import (
@@ -90,6 +85,8 @@ from pandas.core.arrays._mixins import NDArrayBackedExtensionArray
 from pandas.core.construction import extract_array
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pandas._typing import (
         Dtype,
         NpDtype,
@@ -110,7 +107,11 @@ FLOAT_EA_DTYPES: list[Dtype] = ["Float32", "Float64"]
 ALL_FLOAT_DTYPES: list[Dtype] = [*FLOAT_NUMPY_DTYPES, *FLOAT_EA_DTYPES]
 
 COMPLEX_DTYPES: list[Dtype] = [complex, "complex64", "complex128"]
-STRING_DTYPES: list[Dtype] = [str, "str", "U"]
+if using_string_dtype():
+    STRING_DTYPES: list[Dtype] = [str, "U"]
+else:
+    STRING_DTYPES: list[Dtype] = [str, "str", "U"]  # type: ignore[no-redef]
+COMPLEX_FLOAT_DTYPES: list[Dtype] = [*COMPLEX_DTYPES, *FLOAT_NUMPY_DTYPES]
 
 DATETIME64_DTYPES: list[Dtype] = ["datetime64[ns]", "M8[ns]"]
 TIMEDELTA64_DTYPES: list[Dtype] = ["timedelta64[ns]", "m8[ns]"]
@@ -236,11 +237,18 @@ if not pa_version_under10p1:
         + TIMEDELTA_PYARROW_DTYPES
         + BOOL_PYARROW_DTYPES
     )
+    ALL_REAL_PYARROW_DTYPES_STR_REPR = (
+        ALL_INT_PYARROW_DTYPES_STR_REPR + FLOAT_PYARROW_DTYPES_STR_REPR
+    )
 else:
     FLOAT_PYARROW_DTYPES_STR_REPR = []
     ALL_INT_PYARROW_DTYPES_STR_REPR = []
     ALL_PYARROW_DTYPES = []
+    ALL_REAL_PYARROW_DTYPES_STR_REPR = []
 
+ALL_REAL_NULLABLE_DTYPES = (
+    FLOAT_NUMPY_DTYPES + ALL_REAL_EXTENSION_DTYPES + ALL_REAL_PYARROW_DTYPES_STR_REPR
+)
 
 arithmetic_dunder_methods = [
     "__add__",
@@ -286,17 +294,11 @@ def box_expected(expected, box_cls, transpose: bool = True):
         else:
             expected = pd.array(expected, copy=False)
     elif box_cls is Index:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Dtype inference", category=FutureWarning)
-            expected = Index(expected)
+        expected = Index(expected)
     elif box_cls is Series:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Dtype inference", category=FutureWarning)
-            expected = Series(expected)
+        expected = Series(expected)
     elif box_cls is DataFrame:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Dtype inference", category=FutureWarning)
-            expected = Series(expected).to_frame()
+        expected = Series(expected).to_frame()
         if transpose:
             # for vector operations, we need a DataFrame to be a single-row,
             #  not a single-column, in order to operate against non-DataFrame
@@ -394,9 +396,6 @@ def external_error_raised(expected_exception: type[Exception]) -> ContextManager
     return pytest.raises(expected_exception, match=None)
 
 
-cython_table = pd.core.common._cython_table.items()
-
-
 def get_cython_table_params(ndframe, func_names_and_expected):
     """
     Combine frame, functions from com._cython_table
@@ -417,11 +416,6 @@ def get_cython_table_params(ndframe, func_names_and_expected):
     results = []
     for func_name, expected in func_names_and_expected:
         results.append((ndframe, func_name, expected))
-        results += [
-            (ndframe, func, expected)
-            for func, name in cython_table
-            if name == func_name
-        ]
     return results
 
 
@@ -483,7 +477,7 @@ def iat(x):
 _UNITS = ["s", "ms", "us", "ns"]
 
 
-def get_finest_unit(left: str, right: str):
+def get_finest_unit(left: str, right: str) -> str:
     """
     Find the higher of two datetime64 units.
     """
@@ -519,14 +513,14 @@ def shares_memory(left, right) -> bool:
     if (
         isinstance(left, ExtensionArray)
         and is_string_dtype(left.dtype)
-        and left.dtype.storage in ("pyarrow", "pyarrow_numpy")  # type: ignore[attr-defined]
+        and left.dtype.storage == "pyarrow"  # type: ignore[attr-defined]
     ):
         # https://github.com/pandas-dev/pandas/pull/43930#discussion_r736862669
         left = cast("ArrowExtensionArray", left)
         if (
             isinstance(right, ExtensionArray)
             and is_string_dtype(right.dtype)
-            and right.dtype.storage in ("pyarrow", "pyarrow_numpy")  # type: ignore[attr-defined]
+            and right.dtype.storage == "pyarrow"  # type: ignore[attr-defined]
         ):
             right = cast("ArrowExtensionArray", right)
             left_pa_data = left._pa_array
@@ -542,8 +536,8 @@ def shares_memory(left, right) -> bool:
             left._mask, right._mask
         )
 
-    if isinstance(left, DataFrame) and len(left._mgr.arrays) == 1:
-        arr = left._mgr.arrays[0]
+    if isinstance(left, DataFrame) and len(left._mgr.blocks) == 1:
+        arr = left._mgr.blocks[0].values
         return shares_memory(arr, right)
 
     raise NotImplementedError(type(left), type(right))
@@ -569,7 +563,6 @@ __all__ = [
     "assert_indexing_slices_equivalent",
     "assert_interval_array_equal",
     "assert_is_sorted",
-    "assert_is_valid_plot_return_object",
     "assert_metadata_equivalent",
     "assert_numpy_array_equal",
     "assert_period_array_equal",
@@ -577,7 +570,6 @@ __all__ = [
     "assert_series_equal",
     "assert_sp_array_equal",
     "assert_timedelta_array_equal",
-    "assert_cow_warning",
     "at",
     "BOOL_DTYPES",
     "box_expected",
@@ -609,7 +601,6 @@ __all__ = [
     "OBJECT_DTYPES",
     "raise_assert_detail",
     "raises_chained_assignment_error",
-    "round_trip_localpath",
     "round_trip_pathlib",
     "round_trip_pickle",
     "setitem",
@@ -625,7 +616,6 @@ __all__ = [
     "to_array",
     "UNSIGNED_INT_EA_DTYPES",
     "UNSIGNED_INT_NUMPY_DTYPES",
-    "use_numexpr",
     "with_csv_dialect",
     "write_to_compressed",
 ]

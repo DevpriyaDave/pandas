@@ -10,13 +10,13 @@
 
 """Git implementation of _version.py."""
 
+from collections.abc import Callable
 import errno
 import functools
 import os
 import re
 import subprocess
 import sys
-from typing import Callable
 
 
 def get_keywords():
@@ -358,9 +358,9 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
             if verbose:
                 fmt = "tag '%s' doesn't start with prefix '%s'"
                 print(fmt % (full_tag, tag_prefix))
-            pieces[
-                "error"
-            ] = f"tag '{full_tag}' doesn't start with prefix '{tag_prefix}'"
+            pieces["error"] = (
+                f"tag '{full_tag}' doesn't start with prefix '{tag_prefix}'"
+            )
             return pieces
         pieces["closest-tag"] = full_tag[len(tag_prefix) :]
 
